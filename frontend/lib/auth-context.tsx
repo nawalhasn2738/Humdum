@@ -2,11 +2,13 @@
 
 import { createContext, useContext, useState, ReactNode } from 'react'
 
+export type UserRole = 'seeker' | 'host' | 'admin'
+
 export interface User {
   id: string
   email: string
   name: string
-  userType: 'seeker' | 'host'
+  userType: UserRole
 }
 
 export interface Application {
@@ -22,8 +24,8 @@ export interface Application {
 interface AuthContextType {
   user: User | null
   isLoading: boolean
-  login: (email: string, password: string, userType: 'seeker' | 'host') => Promise<void>
-  signup: (email: string, password: string, name: string, userType: 'seeker' | 'host') => Promise<void>
+  login: (email: string, password: string, userType: UserRole) => Promise<void>
+  signup: (email: string, password: string, name: string, userType: UserRole) => Promise<void>
   applications: Application[]
   applyToListing: (application: Omit<Application, 'id' | 'appliedAt' | 'status'>) => void
   logout: () => void
@@ -42,13 +44,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       : [...current, { ...application, id: crypto.randomUUID(), status: 'Pending', appliedAt: new Date().toISOString() }])
   }
 
-  const login = async (email: string, password: string, userType: 'seeker' | 'host') => {
+  const login = async (email: string, password: string, userType: UserRole) => {
     setIsLoading(true)
     setUser({ id: '1', email, name: email.split('@')[0], userType })
     setIsLoading(false)
   }
 
-  const signup = async (email: string, password: string, name: string, userType: 'seeker' | 'host') => {
+  const signup = async (email: string, password: string, name: string, userType: UserRole) => {
     setIsLoading(true)
     setUser({ id: crypto.randomUUID(), email, name, userType })
     setIsLoading(false)

@@ -1,5 +1,25 @@
 const pool = require('../db');
 const { getSupabaseClient } = require('../services/supabase');
+const { verifyLocalAccessToken } = require('../services/local-auth');
+
+async function resolveClaims(token) {
+  const localClaims = verifyLocalAccessToken(token);
+
+  if (localClaims) {
+    return localClaims;
+  }
+
+  const { data, error } = await getSupabaseClient().auth.getClaims(token);
+  const claims = data?.claims;
+
+  if (error || !claims?.sub) {
+    const verificationError = new Error('Invalid or expired token.');
+    verificationError.code = 'INVALID_TOKEN';
+    throw verificationError;
+  }
+
+  return claims;
+}
 
 async function authenticate(req, res, next) {
   const authorization = req.get('authorization');
@@ -14,16 +34,15 @@ async function authenticate(req, res, next) {
   let claims;
 
   try {
-    const { data, error } = await getSupabaseClient().auth.getClaims(match[1]);
-    claims = data?.claims;
-
-    if (error || !claims?.sub) {
-      return res.status(401).json({ error: 'Invalid or expired token.' });
-    }
+    claims = await resolveClaims(match[1]);
   } catch (error) {
     if (error.message.startsWith('SUPABASE_URL')) {
       console.error('Authentication configuration error:', error.message);
       return res.status(500).json({ error: 'Authentication is not configured.' });
+    }
+
+    if (error.code === 'INVALID_TOKEN') {
+      return res.status(401).json({ error: 'Invalid or expired token.' });
     }
 
     console.error('Token verification failed:', error.message);

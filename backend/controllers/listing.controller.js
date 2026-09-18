@@ -5,6 +5,10 @@ const { invalidateCachePattern } = require('../services/cache.service');
 const DEFAULT_RADIUS_KM = 5;
 const MAX_RADIUS_KM = 100;
 
+function isPositiveId(value) {
+  return /^[1-9]\d*$/.test(String(value));
+}
+
 function serializeListing(row) {
   return {
     id: String(row.id),
@@ -233,7 +237,41 @@ async function getListings(req, res) {
   }
 }
 
-module.exports = { createListing, getListings };
+async function getListingById(req, res) {
+  if (!isPositiveId(req.params.id)) {
+    return res.status(400).json({ error: 'A valid listing ID is required.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         id,
+         landlord_id,
+         title,
+         description,
+         rent,
+         deposit,
+         curfew_rules,
+         ST_Y(geo_point) AS latitude,
+         ST_X(geo_point) AS longitude,
+         created_at
+       FROM listings
+       WHERE id = $1`,
+      [req.params.id]
+    );
+
+    if (!result.rows[0]) {
+      return res.status(404).json({ error: 'Listing not found.' });
+    }
+
+    return res.json({ listing: serializeListing(result.rows[0]) });
+  } catch (error) {
+    console.error('Listing lookup failed:', error.message);
+    return res.status(500).json({ error: 'Unable to fetch listing.' });
+  }
+}
+
+module.exports = { createListing, getListings, getListingById };
 
 
 

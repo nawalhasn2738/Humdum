@@ -1,5 +1,5 @@
 const express = require('express');
-const { createListing, getListings } = require('../controllers/listing.controller');
+const { createListing, getListings, getListingById } = require('../controllers/listing.controller');
 const { getSafetyScore } = require('../controllers/safety-index.controller');
 const { authenticate, authorizeRoles } = require('../middleware/auth');
 const { cacheResponse } = require('../middleware/cache');
@@ -12,6 +12,7 @@ router.get(
   cacheResponse({ namespace: 'safety-score', ttlSeconds: 120 }),
   getSafetyScore
 );
+router.get('/:id', getListingById);
 router.post(
   '/',
   authenticate,

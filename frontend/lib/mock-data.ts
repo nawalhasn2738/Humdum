@@ -18,6 +18,11 @@ export interface Listing {
   description: string
   nearestMetroStation: string
   metroDistance: number
+  landlordId?: string
+  deposit?: number
+  curfewRules?: string | null
+  location?: { latitude: number; longitude: number } | null
+  source?: 'api' | 'mock'
 }
 
 export interface User {

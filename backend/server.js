@@ -19,7 +19,26 @@ const { closeComplianceQueue } = require('./queues/compliance.queue');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  process.env.FRONTEND_ORIGIN,
+].filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`Origin ${origin} is not allowed by CORS.`));
+    },
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  })
+);
 app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/listings', listingRoutes);
@@ -50,6 +69,14 @@ app.get('/api/protected', authenticate, (req, res) => {
     message: 'You have access to this protected route.',
     user: req.user,
   });
+});
+
+app.use((error, req, res, next) => {
+  if (error && String(error.message).includes('not allowed by CORS')) {
+    return res.status(403).json({ error: 'Origin is not allowed by CORS.' });
+  }
+
+  return next(error);
 });
 
 const server = app.listen(PORT, () => {

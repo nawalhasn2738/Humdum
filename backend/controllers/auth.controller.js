@@ -1,5 +1,9 @@
 const pool = require('../db');
 const { getSupabaseClient } = require('../services/supabase');
+const {
+  isDevLoginEnabled,
+  signLocalAccessToken,
+} = require('../services/local-auth');
 
 const SELF_SERVICE_ROLES = new Set(['tenant', 'landlord']);
 const E164_PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
@@ -132,4 +136,88 @@ async function verifyPhoneOtp(req, res) {
   }
 }
 
-module.exports = { register, requestPhoneOtp, verifyPhoneOtp };
+function serializeRegisteredUser(user) {
+  return {
+    id: String(user.id),
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    phone: user.phone,
+    maskedPhone: user.masked_phone,
+    createdAt: user.created_at,
+  };
+}
+
+async function login(req, res) {
+  if (!isDevLoginEnabled()) {
+    return res.status(404).json({
+      error: 'Email login is disabled. Verify a phone OTP to receive a session token.',
+    });
+  }
+
+  const email = req.body.email?.trim().toLowerCase();
+  const phone = req.body.phone?.trim();
+
+  if (!email && !phone) {
+    return res.status(400).json({ error: 'Email or phone is required.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT id, name, email, role, phone, masked_phone, created_at
+       FROM users
+       WHERE ($1::text IS NOT NULL AND email = $1)
+          OR ($2::text IS NOT NULL AND phone = $2)
+       LIMIT 1`,
+      [email || null, phone || null]
+    );
+    const user = result.rows[0];
+
+    if (!user) {
+      return res.status(401).json({ error: 'No matching Humdum profile was found.' });
+    }
+
+    const accessToken = signLocalAccessToken({
+      sub: `local-${user.id}`,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+    });
+
+    return res.json({
+      message: 'Development login issued a local session token.',
+      accessToken,
+      user: serializeRegisteredUser(user),
+    });
+  } catch (error) {
+    console.error('Development login failed:', error.message);
+    return res.status(500).json({ error: 'Unable to log in.' });
+  }
+}
+
+async function me(req, res) {
+  if (!req.user.profileId) {
+    return res.status(404).json({ error: 'No Humdum profile is linked to this session.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT id, name, email, role, phone, masked_phone, created_at
+       FROM users
+       WHERE id = $1`,
+      [req.user.profileId]
+    );
+    const user = result.rows[0];
+
+    if (!user) {
+      return res.status(404).json({ error: 'User profile not found.' });
+    }
+
+    return res.json({ user: serializeRegisteredUser(user) });
+  } catch (error) {
+    console.error('Current user lookup failed:', error.message);
+    return res.status(500).json({ error: 'Unable to load the current user.' });
+  }
+}
+
+module.exports = { register, requestPhoneOtp, verifyPhoneOtp, login, me };

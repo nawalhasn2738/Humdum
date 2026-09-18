@@ -45,6 +45,11 @@ export function Nav() {
                     Applications
                   </Link>
                 )}
+                {user.role === 'admin' && (
+                  <Link href="/admin" className="flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-sage hover:bg-sage-light">
+                    Admin
+                  </Link>
+                )}
                 <Link href="/profile" className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-sage hover:bg-sage-light">
                   <User className="size-4" /> {user.name}
                 </Link>

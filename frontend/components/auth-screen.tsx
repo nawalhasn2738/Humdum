@@ -58,10 +58,15 @@ export function AuthScreen({ initialMode }: { initialMode: AuthMode }) {
     }
 
     const userRole = roleMap[role]
-    if (mode === 'signup') {
-      await signup(email.trim(), password, name.trim(), userRole)
-    } else {
-      await login(email.trim(), password, userRole)
+    try {
+      if (mode === 'signup') {
+        await signup(email.trim(), password, name.trim(), userRole, phone.trim())
+      } else {
+        await login(email.trim(), password, userRole, phone.trim() || undefined)
+      }
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : 'Unable to continue.')
+      return
     }
 
     const next = new URLSearchParams(window.location.search).get('next')

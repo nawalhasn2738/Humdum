@@ -104,3 +104,43 @@ Status: `200 OK`
 ```
 
 When no matching properties are found, the endpoint returns `200 OK` with an empty `listings` array and `count` set to `0`.
+
+## GET /api/listings/:id
+
+Returns a single listing by ID, including PostGIS coordinates.
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "listing": {
+    "id": "101",
+    "landlordId": "7",
+    "title": "Furnished room near the university",
+    "description": "Private room with utilities included.",
+    "rent": 35000,
+    "deposit": 35000,
+    "curfewRules": "Entry before 11:00 PM",
+    "location": {
+      "latitude": 33.6844,
+      "longitude": 73.0479
+    },
+    "createdAt": "2026-09-15T08:15:00.000Z"
+  }
+}
+```
+
+## POST /api/auth/login
+
+Development handshake used by the QA branch when SMS OTP is not configured. Disabled unless `ALLOW_DEV_LOGIN=true`.
+
+### Request Body
+
+```json
+{
+  "email": "iman@example.com",
+  "phone": "+923001234567"
+}
+```

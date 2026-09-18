@@ -15,7 +15,8 @@
     "worker:compliance": "node workers/compliance.worker.js",
     "db:tenancy-concurrency": "node tenancy-concurrency-migration.js",
     "db:uploads": "node upload-migration.js",
-    "smoke": "node scripts/smoke-test.js"
+    "smoke": "node scripts/smoke-test.js",
+    "seed:users": "node scripts/seed-users.js"
   },
   "keywords": [],
   "author": "",
@@ -23,6 +24,7 @@
   "type": "commonjs",
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",
+    "bcrypt": "^6.0.0",
     "bullmq": "^6.3.6",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

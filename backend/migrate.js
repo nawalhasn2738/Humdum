@@ -15,6 +15,9 @@ const migration = `
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
 
+  ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS password_hash TEXT;
+
   CREATE TABLE IF NOT EXISTS listings (
     id BIGSERIAL PRIMARY KEY,
     landlord_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

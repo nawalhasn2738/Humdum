@@ -1,9 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz@9..144&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap');
 @import 'tailwindcss';
 @import 'tw-animate-css';
-@import 'shadcn/tailwind.css';
 
+<<<<<<< HEAD
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -152,4 +150,53 @@
   .font-sans {
     font-family: var(--font-body);
   }
+=======
+:root { color-scheme: light; --background: #F4F1FA; --foreground: #1A1A1E; --primary: #4E52E5; --ring: #8B7EF2; }
+@theme inline { --color-background: var(--background); --color-foreground: var(--foreground); --color-primary: var(--primary); --color-ring: var(--ring); }
+* { box-sizing: border-box; }
+html { background: #F4F1FA; }
+body { margin: 0; background: #F4F1FA; color: #1A1A1E; font-family: var(--font-sans), Arial, sans-serif; }
+button, input, textarea { font: inherit; }
+button { cursor: pointer; }
+.font-serif { font-family: var(--font-serif), Georgia, serif; }
+.logo-mark { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 12px; background: #4E52E5; color: white; box-shadow: 0 7px 16px rgba(78,82,229,.22); }
+.hero-image { background: linear-gradient(180deg, rgba(31,31,60,.05), rgba(31,31,60,.72)), url('/humdum-residence.png') center/cover; }
+.listing-photo { background: linear-gradient(180deg, rgba(31,31,60,.04), rgba(31,31,60,.2)), url('/humdum-residence.png') center/cover; }
+.listing-2 { background-image: linear-gradient(180deg, rgba(31,31,60,.04), rgba(31,31,60,.2)), url('/humdum-apartment.png'); }
+.listing-3 { background-image: linear-gradient(180deg, rgba(31,31,60,.04), rgba(31,31,60,.2)), url('/humdum-hostel.png'); }
+.listing-thumb { background: url('/humdum-residence.png') center/cover; }
+::selection { background: #dcd8ff; color: #4E52E5; }
+@keyframes page-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes badge-pop { 0% { opacity: 0; transform: scale(.82); } 70% { transform: scale(1.06); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes save-pop { 0% { transform: scale(1); } 45% { transform: scale(1.22) rotate(-5deg); } 100% { transform: scale(1); } }
+@keyframes chip-bounce { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.045); } }
+@keyframes shimmer { 0% { background-position: 150% 0; } 100% { background-position: -150% 0; } }
+@keyframes breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+.motion-page { animation: page-in .24s ease both; }
+.badge-verified { animation: badge-pop .3s ease-out both; }
+.card-interactive { transition: transform .18s ease, box-shadow .18s ease; }
+.card-interactive:hover { transform: translateY(-4px); box-shadow: 0 16px 36px rgba(49,44,99,.12); }
+.save-pop { animation: save-pop .28s ease-out; }
+.chip-interactive { transition: background-color .18s ease, color .18s ease, transform .18s ease; }
+.chip-interactive:active { animation: chip-bounce .22s ease-out; }
+.brand-breathe { animation: breathe 3.2s ease-in-out infinite; }
+.skeleton-shimmer { background: linear-gradient(110deg, rgba(255,255,255,.55) 30%, rgba(255,255,255,.9) 45%, rgba(255,255,255,.55) 60%); background-size: 200% 100%; animation: shimmer 1.35s linear infinite; }
+@media (prefers-reduced-motion: no-preference) { button, a, input, textarea { transition: transform .18s ease, color .18s ease, background-color .18s ease, box-shadow .18s ease, border-color .18s ease; } button:hover { transform: translateY(-1px); } button:active { transform: scale(.97); } input:invalid, textarea:invalid { animation: none; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+@media (max-width: 640px) {
+  body { overflow-x: hidden; }
+  header { min-width: 0; }
+  header > div { min-width: 0; }
+  .logo-mark { width: 32px; height: 32px; border-radius: 11px; }
+  .font-serif { letter-spacing: -0.02em; }
+  button { max-width: 100%; }
+  input, textarea, select { max-width: 100%; }
 }
+@media (max-width: 360px) {
+  .logo-mark { width: 29px; height: 29px; border-radius: 10px; }
+  header .rounded-2xl { padding-left: .75rem; padding-right: .75rem; }
+  h1 { font-size: 2.25rem !important; line-height: 1.05; }
+  .font-serif.text-5xl { font-size: 2.85rem; }
+>>>>>>> origin/frontend-iman
+}
+@media (min-width: 1024px) { body { min-height: 100vh; } }

@@ -1,11 +1,14 @@
 import { Analytics } from '@vercel/analytics/next'
+import { Cormorant_Garamond, DM_Sans } from 'next/font/google'
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
-import { Providers } from './providers'
+
+const serif = Cormorant_Garamond({ subsets: ['latin'], variable: '--font-serif', weight: ['500', '600', '700'] })
+const sans = DM_Sans({ subsets: ['latin'], variable: '--font-sans', weight: ['400', '500', '600', '700'] })
 
 export const metadata: Metadata = {
-  title: 'humdum — Find a place that feels like home',
-  description: 'Verified hostels and shared spaces for students and working women in Islamabad and Rawalpindi.',
+  title: 'Humdum — Safe, verified homes for women',
+  description: 'Find safe, verified hostels and rentals near your university or workplace in Islamabad and Rawalpindi.',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -28,7 +31,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   colorScheme: 'light',
-  themeColor: '#4F6355',
+  themeColor: '#F4F1FA',
+  userScalable: false,
 }
 
 export default function RootLayout({
@@ -38,10 +42,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased">
-        <Providers>
-          {children}
-        </Providers>
+      <body className={`${serif.variable} ${sans.variable} antialiased`}>
+        {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

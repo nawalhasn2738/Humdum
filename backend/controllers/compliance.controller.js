@@ -42,11 +42,15 @@ function serializeAudit(row) {
   };
 }
 
-function getSafetyStatus(audit) {
+function getSafetyStatus(audit, listingUpdatedAt = null) {
   const today = new Date().toISOString().slice(0, 10);
 
   if (audit.expiryDate < today) {
     return 'expired';
+  }
+
+  if (listingUpdatedAt && new Date(audit.createdAt).getTime() < new Date(listingUpdatedAt).getTime()) {
+    return 'pending_verification';
   }
 
   if (audit.auditScore >= 80) {
@@ -171,7 +175,7 @@ async function getAudit(req, res) {
     return res.json({
       listing: result.listing,
       audit,
-      safetyStatus: getSafetyStatus(audit),
+      safetyStatus: getSafetyStatus(audit, result.listing.updatedAt),
     });
   } catch (error) {
     console.error('Compliance audit fetch failed:', error.message);

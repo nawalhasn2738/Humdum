@@ -37,18 +37,55 @@ async function register(req, res) {
     });
   }
 
+  if (!req.user?.id) {
+    return res.status(401).json({
+      error: 'A verified Supabase access token is required.',
+    });
+  }
+
+  const verifiedEmail = req.user.email?.trim().toLowerCase();
+  const verifiedPhone = req.user.phone?.trim();
+
+  if (!verifiedEmail || verifiedEmail !== email) {
+    return res.status(403).json({
+      error: 'The submitted email must match the verified Supabase identity.',
+    });
+  }
+
+  if (verifiedPhone && verifiedPhone !== phone) {
+    return res.status(403).json({
+      error: 'The submitted phone must match the verified Supabase identity.',
+    });
+  }
+
   try {
     const result = await pool.query(
-      `INSERT INTO users (name, email, role, phone, masked_phone)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, name, email, role, phone, masked_phone, created_at`,
-      [name, email, role, phone, maskPhone(phone)]
+      `INSERT INTO users (
+         supabase_user_id,
+         name,
+         email,
+         role,
+         phone,
+         masked_phone
+       )
+       VALUES ($1::uuid, $2, $3, $4, $5, $6)
+       RETURNING
+         id,
+         supabase_user_id,
+         name,
+         email,
+         role,
+         phone,
+         masked_phone,
+         created_at`,
+      [req.user.id, name, email, role, phone, maskPhone(phone)]
     );
     const user = result.rows[0];
 
     return res.status(201).json({
       user: {
         id: String(user.id),
+        supabaseUserId: user.supabase_user_id,
         name: user.name,
         email: user.email,
         role: user.role,

@@ -1,4 +1,5 @@
 const pool = require('../db');
+const { PUBLIC_LISTING_STATUS } = require('./listing-visibility.service');
 
 const WEIGHTS = Object.freeze({
   compliance: 0.5,
@@ -39,6 +40,7 @@ async function calculateSafetyIndex(listingId) {
     `SELECT
        l.id AS listing_id,
        l.title,
+       l.updated_at AS listing_updated_at,
        ST_Y(l.geo_point) AS latitude,
        ST_X(l.geo_point) AS longitude,
        a.id AS audit_id,
@@ -67,8 +69,8 @@ async function calculateSafetyIndex(listingId) {
        WHERE tenancies.listing_id = l.id
          AND LOWER(tenancies.status) IN ('completed', 'ended')
      ) r ON TRUE
-     WHERE l.id = $1`,
-    [listingId]
+     WHERE l.id = $1 AND l.moderation_status = $2`,
+    [listingId, PUBLIC_LISTING_STATUS]
   );
 
   if (result.rowCount === 0) {
@@ -78,7 +80,11 @@ async function calculateSafetyIndex(listingId) {
   const row = result.rows[0];
   const expiryDate = toDateString(row.expiry_date);
   const today = new Date().toISOString().slice(0, 10);
-  const hasCurrentAudit = Boolean(row.audit_id && expiryDate && expiryDate >= today);
+  const auditCreatedAt = row.audit_created_at ? new Date(row.audit_created_at).getTime() : 0;
+  const listingUpdatedAt = row.listing_updated_at ? new Date(row.listing_updated_at).getTime() : 0;
+  const hasCurrentAudit = Boolean(
+    row.audit_id && expiryDate && expiryDate >= today && auditCreatedAt >= listingUpdatedAt
+  );
   const reviewCount = Number(row.review_count || 0);
   const hasVerifiedReviews = reviewCount > 0;
 

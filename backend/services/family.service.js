@@ -1,11 +1,16 @@
 const crypto = require('crypto');
 const pool = require('../db');
+const {
+  deriveCheckInState,
+  isActiveSosStatus,
+  normalizeOverdueHours,
+} = require('./family-safety-policy.service');
 
 function serializeProfile(row, includeShareableToken = false) {
   return {
     id: String(row.id),
     userId: String(row.user_id),
-    listingId: String(row.listing_id),
+    listingId: row.listing_id ? String(row.listing_id) : null,
     student: {
       name: row.student_name,
       email: row.student_email,
@@ -14,6 +19,7 @@ function serializeProfile(row, includeShareableToken = false) {
     emergencyContact: {
       name: row.emergency_contact_name,
       relationship: row.emergency_contact_relationship,
+      email: row.guardian_email,
     },
     guardianPhones: {
       primary: row.guardian_phone,
@@ -65,12 +71,6 @@ async function upsertFamilyProfile(userId, input) {
       input.listingId
     );
 
-    if (!activeListingId) {
-      const error = new Error('An active tenancy is required.');
-      error.code = 'ACTIVE_TENANCY_REQUIRED';
-      throw error;
-    }
-
     const generatedData = {
       emergencyContactConfigured: true,
       guardianCount: input.secondaryGuardianPhone ? 2 : 1,
@@ -87,11 +87,12 @@ async function upsertFamilyProfile(userId, input) {
          emergency_contact_name,
          emergency_contact_relationship,
          guardian_phone,
+         guardian_email,
          secondary_guardian_phone,
          check_in_preferences,
          updated_at
        )
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb, NOW())
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10::jsonb, NOW())
        ON CONFLICT (user_id) WHERE user_id IS NOT NULL
        DO UPDATE SET
          listing_id = EXCLUDED.listing_id,
@@ -99,6 +100,7 @@ async function upsertFamilyProfile(userId, input) {
          emergency_contact_name = EXCLUDED.emergency_contact_name,
          emergency_contact_relationship = EXCLUDED.emergency_contact_relationship,
          guardian_phone = EXCLUDED.guardian_phone,
+         guardian_email = EXCLUDED.guardian_email,
          secondary_guardian_phone = EXCLUDED.secondary_guardian_phone,
          check_in_preferences = EXCLUDED.check_in_preferences,
          updated_at = NOW()
@@ -111,6 +113,7 @@ async function upsertFamilyProfile(userId, input) {
         input.emergencyContactName,
         input.emergencyContactRelationship,
         input.guardianPhone,
+        input.guardianEmail,
         input.secondaryGuardianPhone,
         JSON.stringify(input.checkInPreferences),
       ]
@@ -158,7 +161,7 @@ async function getFamilyProfile({ requestedUserId, actorId, actorRole }) {
        ) AS verified_tenancy
      FROM family_profiles
      INNER JOIN users student ON student.id = family_profiles.user_id
-     INNER JOIN listings ON listings.id = family_profiles.listing_id
+     LEFT JOIN listings ON listings.id = family_profiles.listing_id
      WHERE family_profiles.user_id = $1`,
     [requestedUserId]
   );
@@ -191,5 +194,135 @@ async function getFamilyProfile({ requestedUserId, actorId, actorRole }) {
   };
 }
 
-module.exports = { getFamilyProfile, upsertFamilyProfile };
+function serializeCheckIn(row) {
+  return {
+    id: String(row.id),
+    status: row.status,
+    checkedInAt: row.checked_in_at,
+    guardianNotifiedAt: row.guardian_notified_at,
+  };
+}
+
+async function createCheckIn(userId) {
+  const result = await pool.query(
+    `INSERT INTO family_check_ins (user_id, status)
+     VALUES ($1, 'confirmed')
+     RETURNING id, status, checked_in_at, guardian_notified_at`,
+    [userId]
+  );
+  return serializeCheckIn(result.rows[0]);
+}
+
+async function getCheckIns(userId) {
+  const result = await pool.query(
+    `SELECT id, status, checked_in_at, guardian_notified_at
+     FROM family_check_ins
+     WHERE user_id = $1
+     ORDER BY checked_in_at DESC, id DESC
+     LIMIT 50`,
+    [userId]
+  );
+  return result.rows.map(serializeCheckIn);
+}
+
+function serializeSosAlert(row) {
+  return {
+    id: String(row.id),
+    status: row.status,
+    triggeredAt: row.triggered_at,
+    acknowledgedAt: row.acknowledged_at || null,
+    resolvedAt: row.resolved_at || null,
+  };
+}
+
+async function getSafetyState(userId) {
+  const [profileResult, checkInResult, sosResult] = await Promise.all([
+    pool.query('SELECT check_in_preferences FROM family_profiles WHERE user_id = $1', [userId]),
+    pool.query(
+      `SELECT id, status, checked_in_at, guardian_notified_at
+       FROM family_check_ins
+       WHERE user_id = $1
+       ORDER BY checked_in_at DESC, id DESC
+       LIMIT 1`,
+      [userId]
+    ),
+    pool.query(
+      `SELECT id, status, triggered_at, acknowledged_at, resolved_at
+       FROM sos_alerts
+       WHERE user_id = $1 AND status IN ('triggered', 'acknowledged')
+       ORDER BY triggered_at DESC, id DESC
+       LIMIT 1`,
+      [userId]
+    ),
+  ]);
+
+  const latestRow = checkInResult.rows[0] || null;
+  const overdueAfterHours = normalizeOverdueHours(profileResult.rows[0]?.check_in_preferences);
+  return {
+    latestCheckIn: latestRow ? serializeCheckIn(latestRow) : null,
+    checkInState: deriveCheckInState(latestRow, overdueAfterHours),
+    overdueAfterHours,
+    activeSos: sosResult.rows[0] ? serializeSosAlert(sosResult.rows[0]) : null,
+    sosState: sosResult.rows[0] && isActiveSosStatus(sosResult.rows[0].status) ? 'active' : 'none',
+  };
+}
+
+async function createSosAlert(userId) {
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended('sos:' || $1::text, 0))",
+      [userId]
+    );
+
+    const profile = await client.query(
+      'SELECT id FROM family_profiles WHERE user_id = $1',
+      [userId]
+    );
+    if (profile.rowCount === 0) {
+      const error = new Error('A guardian contact is required before sending SOS alerts.');
+      error.code = 'GUARDIAN_REQUIRED';
+      throw error;
+    }
+
+    const existing = await client.query(
+      `SELECT id, status, triggered_at, acknowledged_at, resolved_at
+       FROM sos_alerts
+       WHERE user_id = $1 AND status IN ('triggered', 'acknowledged')
+       ORDER BY triggered_at DESC, id DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [userId]
+    );
+    if (existing.rowCount > 0) {
+      await client.query('COMMIT');
+      return { alert: serializeSosAlert(existing.rows[0]), created: false };
+    }
+
+    const result = await client.query(
+      `INSERT INTO sos_alerts (user_id, status)
+       VALUES ($1, 'triggered')
+       RETURNING id, status, triggered_at, acknowledged_at, resolved_at`,
+      [userId]
+    );
+    await client.query('COMMIT');
+    return { alert: serializeSosAlert(result.rows[0]), created: true };
+  } catch (error) {
+    if (client) await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client?.release();
+  }
+}
+
+module.exports = {
+  createCheckIn,
+  createSosAlert,
+  getCheckIns,
+  getFamilyProfile,
+  getSafetyState,
+  upsertFamilyProfile,
+};
 

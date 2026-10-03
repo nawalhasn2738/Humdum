@@ -1,14 +1,13 @@
 const pool = require('../db');
 const { getSupabaseClient } = require('../services/supabase');
+const { buildAuthenticatedIdentity } = require('../services/auth-identity.service');
 
 async function authenticate(req, res, next) {
   const authorization = req.get('authorization');
   const match = authorization?.match(/^Bearer\s+(.+)$/i);
 
   if (!match) {
-    return res.status(401).json({
-      error: 'A Bearer token is required.',
-    });
+    return res.status(401).json({ error: 'A Bearer token is required.' });
   }
 
   let claims;
@@ -32,23 +31,15 @@ async function authenticate(req, res, next) {
 
   try {
     const profileResult = await pool.query(
-      `SELECT id, role
+      `SELECT id, name, email, role, phone, masked_phone
        FROM users
-       WHERE ($1::text IS NOT NULL AND email = $1)
-          OR ($2::text IS NOT NULL AND phone = $2)
+       WHERE supabase_user_id = $1::uuid
        LIMIT 1`,
-      [claims.email || null, claims.phone || null]
+      [claims.sub]
     );
     const profile = profileResult.rows[0];
 
-    req.user = {
-      id: claims.sub,
-      profileId: profile ? String(profile.id) : null,
-      role: profile?.role || claims.app_metadata?.role || null,
-      supabaseRole: claims.role || null,
-      email: claims.email || null,
-      phone: claims.phone || null,
-    };
+    req.user = buildAuthenticatedIdentity(claims, profile);
 
     return next();
   } catch (error) {

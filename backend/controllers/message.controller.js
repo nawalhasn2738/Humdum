@@ -1,4 +1,8 @@
-const { getConversation, sendMessage } = require('../services/message.service');
+const {
+  getConversation,
+  getConversationThreads,
+  sendMessage,
+} = require('../services/message.service');
 const { serializeContact } = require('../middleware/privacy');
 
 const MAX_MESSAGE_LENGTH = 4000;
@@ -47,7 +51,17 @@ async function createMessage(req, res) {
       message: {
         id: String(result.message.id),
         listingId: String(result.message.listing_id),
-        senderId: String(result.message.sender_id),
+        sender: serializeContact(
+          {
+            id: result.sender.sender_id,
+            name: result.sender.sender_name,
+            role: result.sender.sender_role,
+            email: result.sender.sender_email,
+            phone: result.sender.sender_phone,
+            masked_phone: result.sender.sender_masked_phone,
+          },
+          canRevealContactDetails
+        ),
         receiver: serializeContact(
           {
             id: result.receiver.receiver_id,
@@ -90,11 +104,21 @@ async function getMessages(req, res) {
     return res.status(400).json({ error: 'A valid listing ID is required.' });
   }
 
+  const participantId = req.query.participantId ?? req.query.participant_id;
+  if (
+    participantId !== undefined &&
+    (!isPositiveId(participantId) ||
+      String(participantId) === String(req.user.profileId))
+  ) {
+    return res.status(400).json({ error: 'A valid participant ID is required.' });
+  }
+
   try {
     const conversation = await getConversation({
       viewerId: req.user.profileId,
       viewerRole: req.user.role,
       listingId: req.params.listingId,
+      participantId: participantId || null,
     });
 
     if (!conversation) {
@@ -108,4 +132,23 @@ async function getMessages(req, res) {
   }
 }
 
-module.exports = { createMessage, getMessages };
+async function getMessageThreads(req, res) {
+  if (!req.user.profileId) {
+    return res.status(403).json({
+      error: 'A registered user profile is required to view messages.',
+    });
+  }
+
+  try {
+    const threads = await getConversationThreads({
+      viewerId: req.user.profileId,
+      viewerRole: req.user.role,
+    });
+    return res.json({ threads });
+  } catch (error) {
+    console.error('Conversation thread fetch failed:', error.message);
+    return res.status(500).json({ error: 'Unable to fetch conversations.' });
+  }
+}
+
+module.exports = { createMessage, getMessageThreads, getMessages };

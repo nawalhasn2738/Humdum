@@ -52,17 +52,6 @@ async function obtainAccessToken() {
     );
   }
 
-  const registration = await request('/api/auth/register', {
-    method: 'POST',
-    body: { name, email, phone, role: 'landlord' },
-    expected: [201, 409],
-  });
-  console.log(
-    registration.status === 201
-      ? 'PASS registration created the landlord profile.'
-      : 'PASS existing landlord profile accepted for repeat smoke test.'
-  );
-
   await request('/api/auth/phone/request-otp', {
     method: 'POST',
     body: { phone },
@@ -88,7 +77,21 @@ async function obtainAccessToken() {
   }
 
   console.log('PASS OTP verification returned a JWT access token.');
-  return verification.payload.accessToken;
+  const accessToken = verification.payload.accessToken;
+
+  const registration = await request('/api/auth/register', {
+    method: 'POST',
+    token: accessToken,
+    body: { name, email, phone, role: 'landlord' },
+    expected: [201, 409],
+  });
+  console.log(
+    registration.status === 201
+      ? 'PASS verified identity created the landlord profile.'
+      : 'PASS existing verified profile accepted for repeat smoke test.'
+  );
+
+  return accessToken;
 }
 
 async function run() {

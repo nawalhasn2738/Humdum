@@ -7,6 +7,7 @@ const migration = `
 
   CREATE TABLE IF NOT EXISTS users (
     id BIGSERIAL PRIMARY KEY,
+    supabase_user_id UUID UNIQUE,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(320) NOT NULL UNIQUE,
     role VARCHAR(20) NOT NULL CHECK (role IN ('tenant', 'landlord', 'admin')),
@@ -18,6 +19,13 @@ const migration = `
   ALTER TABLE users
     ADD COLUMN IF NOT EXISTS password_hash TEXT;
 
+  ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS supabase_user_id UUID;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS users_supabase_user_id_unique_idx
+    ON users (supabase_user_id)
+    WHERE supabase_user_id IS NOT NULL;
+
   CREATE TABLE IF NOT EXISTS listings (
     id BIGSERIAL PRIMARY KEY,
     landlord_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -26,8 +34,15 @@ const migration = `
     rent NUMERIC(12, 2) NOT NULL CHECK (rent >= 0),
     deposit NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (deposit >= 0),
     curfew_rules TEXT,
+    capacity INTEGER CHECK (capacity IS NULL OR capacity BETWEEN 1 AND 100),
+    accommodation_type VARCHAR(30) CHECK (accommodation_type IS NULL OR accommodation_type IN ('hostel', 'room', 'apartment', 'house')),
+    contact_email VARCHAR(320),
+    contact_phone VARCHAR(30),
+    reported_safety_features TEXT[] NOT NULL DEFAULT '{}',
+    moderation_status VARCHAR(30) NOT NULL DEFAULT 'active' CHECK (moderation_status IN ('active', 'under_review', 'suspended')),
     geo_point geometry(Point, 4326),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
 
   CREATE TABLE IF NOT EXISTS compliance_audits (
@@ -52,6 +67,22 @@ const migration = `
     CHECK (end_date IS NULL OR end_date >= start_date)
   );
 
+  CREATE TABLE IF NOT EXISTS inquiries (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    listing_id BIGINT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending'
+      CHECK (status IN ('pending', 'accepted', 'rejected', 'withdrawn')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS inquiries_unique_active_idx
+    ON inquiries (tenant_id, listing_id)
+    WHERE status IN ('pending', 'accepted');
+
+  CREATE INDEX IF NOT EXISTS inquiries_listing_status_idx
+    ON inquiries (listing_id, status, created_at DESC);
   CREATE TABLE IF NOT EXISTS reviews (
     id BIGSERIAL PRIMARY KEY,
     tenancy_id BIGINT NOT NULL REFERENCES tenancies(id) ON DELETE CASCADE,

@@ -1,5 +1,9 @@
 require('dotenv').config();
 
+const { validateSupabaseEnvironment } = require('./services/supabase');
+
+validateSupabaseEnvironment();
+
 const express = require('express');
 const cors = require('cors');
 const pool = require('./db');
@@ -12,6 +16,7 @@ const messageRoutes = require('./routes/message.routes');
 const adminRoutes = require('./routes/admin.routes');
 const familyRoutes = require('./routes/family.routes');
 const tenancyRoutes = require('./routes/tenancy.routes');
+const inquiryRoutes = require('./routes/inquiry.routes');
 const uploadRoutes = require('./routes/upload.routes');
 const { closeRedis } = require('./config/redis');
 const { closeComplianceQueue } = require('./queues/compliance.queue');
@@ -29,6 +34,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/family-profiles', familyRoutes);
 app.use('/api/tenancies', tenancyRoutes);
+app.use('/api/inquiries', inquiryRoutes);
 app.use('/api/uploads', uploadRoutes);
 
 app.get('/', (req, res) => {

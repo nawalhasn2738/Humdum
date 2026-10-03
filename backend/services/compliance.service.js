@@ -1,5 +1,6 @@
 const pool = require('../db');
 const { logComplianceAction } = require('./audit-trail.service');
+const { PUBLIC_LISTING_STATUS } = require('./listing-visibility.service');
 
 function serializeAuditState(row) {
   if (!row) {
@@ -62,7 +63,8 @@ async function upsertLatestAudit(listingId, audit, actorId) {
              cctv_verified = $2,
              warden_verified = $3,
              audit_score = $4,
-             expiry_date = $5
+             expiry_date = $5,
+             created_at = NOW()
          WHERE id = $6
          RETURNING *`,
         [
@@ -123,6 +125,7 @@ async function findLatestAudit(listingId) {
     `SELECT
        l.id AS listing_id,
        l.title AS listing_title,
+       l.updated_at AS listing_updated_at,
        a.id,
        a.fire_safety_score,
        a.cctv_verified,
@@ -138,8 +141,8 @@ async function findLatestAudit(listingId) {
        ORDER BY created_at DESC, id DESC
        LIMIT 1
      ) a ON TRUE
-     WHERE l.id = $1`,
-    [listingId]
+     WHERE l.id = $1 AND l.moderation_status = $2`,
+    [listingId, PUBLIC_LISTING_STATUS]
   );
 
   if (listingResult.rowCount === 0) {
@@ -152,6 +155,7 @@ async function findLatestAudit(listingId) {
     listing: {
       id: String(listingResult.rows[0].listing_id),
       title: listingResult.rows[0].listing_title,
+      updatedAt: listingResult.rows[0].listing_updated_at,
     },
   };
 }

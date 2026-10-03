@@ -1,280 +1,195 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { Brand } from '@/components/brand'
+import { useAuth } from '@/lib/auth-context'
 import {
-  Check,
-  LayoutDashboard,
-  Map,
-  MessageCircle,
-  Search,
-  ShieldCheck,
-  X,
-} from 'lucide-react'
+  api,
+  type AdminVerificationItem,
+  type AdminVerificationStatus,
+} from '@/lib/api'
+import { FileCheck, LayoutDashboard, Map, MessageCircle, ShieldCheck } from 'lucide-react'
 
-type Verification = {
-  id: number
-  subject: string
-  detail: string
-}
-
-const initialVerifications: Verification[] = [
-  { id: 1, subject: 'Model Town Annex', detail: 'landlord CNIC + NOC' },
-  { id: 2, subject: 'F-10 Studio Flat', detail: 'updated safety photos' },
-  { id: 3, subject: 'New host: Sana R.', detail: 'ID verification' },
+const filters: Array<{ value: AdminVerificationStatus; label: string }> = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'suspended', label: 'Suspended' },
+  { value: 'expired', label: 'Expired' },
 ]
 
-const anomalyData = [
-  { day: 'Thu', value: 3 },
-  { day: 'Fri', value: 5 },
-  { day: 'Sat', value: 2 },
-  { day: 'Sun', value: 9 },
-  { day: 'Mon', value: 4 },
-  { day: 'Tue', value: 7 },
-  { day: 'Wed', value: 4 },
-]
-
-const auditRows = [
-  {
-    timestamp: '2026-09-18 21:02:11',
-    actor: 'admin_hina',
-    action: 'listing.approve #A1092',
-    hash: '0x8fa3…c21e',
-  },
-  {
-    timestamp: '2026-09-18 20:47:03',
-    actor: 'system',
-    action: 'safety_score.recalc #A1077',
-    hash: '0x2b90…7f41',
-  },
-  {
-    timestamp: '2026-09-18 19:12:55',
-    actor: 'admin_bilal',
-    action: 'user.suspend #U0442',
-    hash: '0x77ac…dd02',
-  },
-  {
-    timestamp: '2026-09-18 18:30:41',
-    actor: 'system',
-    action: 'report.flag #R0038',
-    hash: '0x1e4f…99b6',
-  },
-]
-
-function Brand() {
-  return (
-    <Link href="/" className="flex items-center gap-1.5 font-heading text-xl font-semibold text-[#3E332D]">
-      <span aria-hidden="true" className="size-6 rounded-lg bg-gradient-to-br from-terracotta to-peach" />
-      Humdum
-    </Link>
-  )
+const statusStyles: Record<AdminVerificationStatus, string> = {
+  pending: 'bg-peach/55 text-[#765532]',
+  approved: 'bg-sage/60 text-[#4D563A]',
+  rejected: 'bg-red-100 text-red-700',
+  suspended: 'bg-[#E8E1DA] text-[#6D625A]',
+  expired: 'bg-[#E8E1DA] text-[#6D625A]',
 }
 
 export default function AdminPage() {
-  const [verifications, setVerifications] = useState(initialVerifications)
-  const [reviewNotice, setReviewNotice] = useState('')
-  const pendingCount = 9 + verifications.length
+  const { user } = useAuth()
+  const [filter, setFilter] = useState<AdminVerificationStatus>('pending')
+  const [page, setPage] = useState(1)
+  const [items, setItems] = useState<AdminVerificationItem[]>([])
+  const [total, setTotal] = useState(0)
+  const [totalPages, setTotalPages] = useState(0)
+  const [selected, setSelected] = useState<AdminVerificationItem | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [reload, setReload] = useState(0)
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [decisionReason, setDecisionReason] = useState('')
+  const [decisionError, setDecisionError] = useState('')
+  const [decisionNotice, setDecisionNotice] = useState('')
+  const [deciding, setDeciding] = useState(false)
+  const decisionInProgress = useRef(false)
 
-  function review(item: Verification, decision: 'approved' | 'rejected') {
-    setVerifications((current) => current.filter((verification) => verification.id !== item.id))
-    setReviewNotice(item.subject + ' was ' + decision + '.')
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError('')
+    setSelected(null)
+    api.admin.verifications(filter, page)
+      .then((result) => {
+        if (!active) return
+        setItems(result.items)
+        setTotal(result.pagination.total)
+        setTotalPages(result.pagination.totalPages)
+      })
+      .catch((requestError) => {
+        if (!active) return
+        setItems([])
+        setTotal(0)
+        setTotalPages(0)
+        setError(requestError instanceof Error ? requestError.message : 'Unable to load verification queue.')
+      })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [filter, page, reload])
+
+  function changeFilter(next: AdminVerificationStatus) {
+    setFilter(next)
+    setPage(1)
   }
 
-  const metrics = [
-    { value: '7', label: 'Flagged listings', color: 'bg-blush/45' },
-    { value: '3', label: 'Reported users', color: 'bg-terracotta/20' },
-    { value: String(pendingCount), label: 'Pending verifications', color: 'bg-peach/30' },
-    { value: '99.4%', label: 'Audit log integrity', color: 'bg-sage/40' },
-  ]
+  async function downloadEvidence(document: AdminVerificationItem['evidence'][number]) {
+    if (downloadingId) return
+    setDownloadingId(document.id)
+    setError('')
+    try {
+      const blob = await api.listings.downloadEvidence(document.id)
+      const url = URL.createObjectURL(blob)
+      const anchor = window.document.createElement('a')
+      anchor.href = url
+      anchor.download = document.originalFilename
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : 'Unable to retrieve evidence.')
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
+  async function decide(decision: 'approve' | 'reject' | 'suspend') {
+    if (!selected || decisionInProgress.current) return
+    const reason = decisionReason.trim()
+    if ((decision === 'reject' || decision === 'suspend') && !reason) {
+      setDecisionError('A reason is required for this decision.')
+      return
+    }
+    if (!window.confirm((decision === 'approve' ? 'Approve' : capitalize(decision)) + ' ' + selected.title + '?')) return
+    decisionInProgress.current = true
+    setDeciding(true)
+    setDecisionError('')
+    try {
+      await api.admin.decideVerification(selected.id, decision, reason || undefined)
+      setDecisionNotice(selected.title + ' was ' + (decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : 'suspended') + '.')
+      setSelected(null)
+      setDecisionReason('')
+      setReload((value) => value + 1)
+    } catch (requestError) {
+      setDecisionError(requestError instanceof Error ? requestError.message : 'Unable to save this decision.')
+    } finally {
+      decisionInProgress.current = false
+      setDeciding(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-cream text-[#443A34]">
       <header className="sticky top-0 z-30 border-b border-[#E5DBD1] bg-cream/95 backdrop-blur">
         <div className="flex min-h-16 items-center gap-4 px-4 sm:px-6">
-          <div className="w-auto shrink-0 lg:w-[200px]">
-            <Brand />
-          </div>
-
-          <label className="relative mx-auto hidden w-full max-w-md md:block">
-            <span className="sr-only">Search the admin console</span>
-            <Search aria-hidden="true" className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#81756C]" />
-            <input
-              type="search"
-              placeholder="Search F-7, Bahria Town, G-9..."
-              className="h-10 w-full rounded-full border border-[#DDD2C7] bg-[#F6EDE4] pl-11 pr-4 text-sm outline-none transition placeholder:text-[#83776E] focus:border-terracotta focus:bg-white focus:ring-3 focus:ring-blush/40"
-            />
-          </label>
-
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            <span className="hidden rounded-full border border-[#DDD2C7] bg-[#F5ECE3] px-3 py-1 text-xs font-bold text-[#6C6058] sm:inline">
-              Admin
-            </span>
-            <Link
-              href="/profile"
-              aria-label="Open admin profile"
-              className="grid size-9 place-items-center rounded-full bg-peach font-heading text-sm font-bold text-[#4B3B2D]"
-            >
-              H
-            </Link>
+          <div className="w-auto shrink-0 lg:w-[200px]"><Brand /></div>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="hidden rounded-full border border-[#DDD2C7] bg-[#F5ECE3] px-3 py-1 text-xs font-bold sm:inline">{user?.userType === 'safety_inspector' ? 'Safety auditor' : 'Admin'}</span>
+            <span className="grid size-9 place-items-center rounded-full bg-peach font-heading text-sm font-bold">{user?.name?.charAt(0).toUpperCase() || 'A'}</span>
           </div>
         </div>
       </header>
 
       <div className="lg:grid lg:min-h-[calc(100vh-4rem)] lg:grid-cols-[200px_minmax(0,1fr)]">
-        <aside className="border-b border-[#E5DBD1] px-4 py-3 lg:border-b-0 lg:border-r lg:px-4 lg:py-6">
+        <aside className="border-b border-[#E5DBD1] px-4 py-3 lg:border-b-0 lg:border-r lg:py-6">
           <nav aria-label="Admin navigation" className="flex gap-2 overflow-x-auto lg:flex-col">
-            <Link
-              href="/admin"
-              aria-current="page"
-              className="flex min-h-11 shrink-0 items-center gap-3 rounded-2xl bg-white px-4 text-sm font-bold text-[#40362F] shadow-[0_6px_18px_rgba(87,64,50,0.06)]"
-            >
-              <LayoutDashboard className="size-4 text-[#77734E]" />
-              Admin console
-            </Link>
-            <Link
-              href="/listings"
-              className="flex min-h-11 shrink-0 items-center gap-3 rounded-2xl px-4 text-sm font-semibold text-[#756960] transition hover:bg-white/70 hover:text-[#40362F]"
-            >
-              <Map className="size-4 text-[#999268]" />
-              Listings &amp; map
-            </Link>
-            <Link
-              href="/messages"
-              className="flex min-h-11 shrink-0 items-center gap-3 rounded-2xl px-4 text-sm font-semibold text-[#756960] transition hover:bg-white/70 hover:text-[#40362F]"
-            >
-              <MessageCircle className="size-4 text-[#999268]" />
-              Messages
-            </Link>
+            <Link href="/admin" aria-current="page" className="flex min-h-11 shrink-0 items-center gap-3 rounded-2xl bg-white px-4 text-sm font-bold shadow-sm"><LayoutDashboard className="size-4" />Verification queue</Link>
+            <Link href="/listings" className="flex min-h-11 shrink-0 items-center gap-3 rounded-2xl px-4 text-sm font-semibold text-[#756960]"><Map className="size-4" />Listings</Link>
+            <Link href="/messages" className="flex min-h-11 shrink-0 items-center gap-3 rounded-2xl px-4 text-sm font-semibold text-[#756960]"><MessageCircle className="size-4" />Messages</Link>
           </nav>
         </aside>
 
-        <main className="min-w-0 px-4 py-7 sm:px-6 lg:px-8 lg:py-8">
-          <div className="mx-auto max-w-[1080px]">
-            <h1 className="max-w-4xl font-heading text-3xl leading-tight text-[#40362F] sm:text-4xl">
-              Admin moderation &amp; audit console
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#7A6E65]">
-              Tamper-evident logs, abuse signals, and compliance verification in one place.
-            </p>
+        <main className="min-w-0 px-4 py-7 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-[1120px]">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div><h1 className="font-heading text-3xl sm:text-4xl">Listing verification queue</h1><p className="mt-2 text-sm text-[#7A6E65]">Review submitted listing evidence and current compliance state.</p></div>
+              <button type="button" onClick={() => setReload((value) => value + 1)} className="rounded-full border bg-white px-4 py-2 text-xs font-bold">Refresh</button>
+            </div>
 
-            <section aria-label="Platform health metrics" className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {metrics.map((metric) => (
-                <article
-                  key={metric.label}
-                  className={'rounded-2xl border border-[#E3D9CF] p-4 shadow-[0_9px_22px_rgba(88,67,52,0.06)] ' + metric.color}
-                >
-                  <strong className="font-heading text-3xl leading-none text-[#40362F]">{metric.value}</strong>
-                  <p className="mt-2 text-xs font-semibold text-[#70645C]">{metric.label}</p>
-                </article>
-              ))}
-            </section>
-
-            <section className="mt-5 rounded-2xl border border-[#E3D9CF] bg-white p-5 shadow-[0_12px_30px_rgba(88,67,52,0.07)] sm:p-6">
-              <h2 className="font-heading text-xl text-[#40362F]">Anomaly reports, last 7 days</h2>
-              <p className="mt-2 text-xs leading-5 text-[#7A6E65]">
-                Spikes may indicate coordinated fake listings or messaging abuse.
-              </p>
-
-              <div className="mt-6 flex h-32 items-end gap-2 border-b border-[#DED4CA] px-1 sm:gap-3" aria-label="Seven-day anomaly report chart">
-                {anomalyData.map((item) => (
-                  <div key={item.day} className="group flex h-full flex-1 flex-col items-center justify-end gap-2">
-                    <span className="text-[10px] font-bold text-[#645F41] opacity-0 transition group-hover:opacity-100">
-                      {item.value}
-                    </span>
-                    <div
-                      role="img"
-                      aria-label={item.day + ': ' + item.value + ' anomaly reports'}
-                      className={'w-full rounded-t-lg transition hover:bg-terracotta ' +
-                        (item.value === 9 ? 'bg-terracotta/75' : 'bg-[#9A966E]')}
-                      style={{ height: item.value * 9 + 'px' }}
-                    />
-                    <span className="pb-2 text-[10px] font-semibold text-[#81756C]">{item.day}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="mt-5 rounded-2xl border border-[#E3D9CF] bg-white p-5 shadow-[0_12px_30px_rgba(88,67,52,0.07)] sm:p-6">
+            {decisionNotice && <p role="status" className="mt-4 rounded-xl bg-sage/45 p-3 text-sm font-semibold">{decisionNotice}</p>}
+            <section className="mt-6 rounded-2xl border bg-white p-4 shadow-sm sm:p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="font-heading text-xl text-[#40362F]">Compliance verification queue</h2>
-                <p aria-live="polite" className="text-xs font-semibold text-[#696444]">{reviewNotice}</p>
-              </div>
-
-              <div className="mt-4 divide-y divide-[#E6DDD5] border-y border-[#E6DDD5]">
-                {verifications.map((item) => (
-                  <div key={item.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm text-[#5E534B]">
-                      <strong className="font-semibold text-[#40362F]">{item.subject}</strong>
-                      <span> — {item.detail}</span>
-                    </p>
-                    <div className="flex shrink-0 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => review(item, 'approved')}
-                        className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-[#8F8A5D] px-4 text-xs font-bold text-white transition hover:bg-[#7E7950]"
-                      >
-                        <Check className="size-3.5" />
-                        Approve
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => review(item, 'rejected')}
-                        className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-[#DDD2C7] bg-white px-4 text-xs font-bold text-[#5F534B] transition hover:bg-blush"
-                      >
-                        <X className="size-3.5" />
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                ))}
-
-                {verifications.length === 0 && (
-                  <div className="py-8 text-center">
-                    <ShieldCheck className="mx-auto size-7 text-[#77734E]" />
-                    <p className="mt-2 text-sm font-semibold text-[#696057]">Verification queue cleared.</p>
-                  </div>
-                )}
-              </div>
-            </section>
-
-            <section className="mb-12 mt-5 rounded-2xl border border-[#E3D9CF] bg-white p-5 shadow-[0_12px_30px_rgba(88,67,52,0.07)] sm:p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="font-heading text-xl text-[#40362F]">Tamper-evident audit trail</h2>
-                  <p className="mt-1 text-xs text-[#7A6E65]">Append-only records verified against the previous log hash.</p>
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Verification status filter">
+                  {filters.map((item) => <button key={item.value} type="button" onClick={() => changeFilter(item.value)} aria-pressed={filter === item.value} className={'rounded-full px-4 py-2 text-xs font-bold ' + (filter === item.value ? 'bg-terracotta text-white' : 'bg-[#F5ECE3]')}>{item.label}</button>)}
                 </div>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-sage/45 px-3 py-1.5 text-[10px] font-bold text-[#555139]">
-                  <ShieldCheck className="size-3.5" />
-                  Chain verified
-                </span>
+                <span className="text-xs font-semibold text-[#756960]">{total} {filter} listing{total === 1 ? '' : 's'}</span>
               </div>
 
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full min-w-[760px] border-collapse text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-[#DED4CA] text-[#776B63]">
-                      <th className="px-2 py-3 font-bold">Timestamp</th>
-                      <th className="px-2 py-3 font-bold">Actor</th>
-                      <th className="px-2 py-3 font-bold">Action</th>
-                      <th className="px-2 py-3 font-bold">Record hash</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#E7DED6]">
-                    {auditRows.map((row) => (
-                      <tr key={row.hash} className="transition hover:bg-cream/70">
-                        <td className="whitespace-nowrap px-2 py-3 font-mono text-[11px] text-[#62564E]">{row.timestamp}</td>
-                        <td className="px-2 py-3 font-mono text-[11px] text-[#62564E]">{row.actor}</td>
-                        <td className="px-2 py-3 font-mono text-[11px] font-semibold text-[#494039]">{row.action}</td>
-                        <td className="px-2 py-3 font-mono text-[11px] text-[#62564E]">{row.hash}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {error && <div role="alert" className="mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-700"><p>{error}</p><button type="button" onClick={() => setReload((value) => value + 1)} className="mt-3 rounded-full border border-red-300 px-4 py-2 text-xs font-bold">Try again</button></div>}
+              {loading && <div className="mt-5 space-y-3 animate-pulse">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-20 rounded-xl bg-[#F3ECE5]" />)}</div>}
+              {!loading && !error && items.length === 0 && <div className="py-14 text-center"><ShieldCheck className="mx-auto size-8 text-[#8F8A5D]" /><p className="mt-3 text-sm font-semibold">No {filter} verification records.</p><p className="mt-1 text-xs text-[#756960]">The queue will update when listing or evidence state changes.</p></div>}
+
+              {!loading && !error && items.length > 0 && <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[900px] text-left text-xs"><thead><tr className="border-b text-[#756960]"><th className="px-3 py-3">Listing</th><th className="px-3 py-3">Owner</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Submitted</th><th className="px-3 py-3">Evidence</th><th className="px-3 py-3">Action</th></tr></thead><tbody className="divide-y">{items.map((item) => <tr key={item.id} className="align-top"><td className="px-3 py-4"><p className="font-bold text-[#40362F]">{item.title}</p><p className="mt-1 text-[11px] text-[#756960]">Listing #{item.id} · {formatModeration(item.moderationStatus)}</p></td><td className="px-3 py-4"><p className="font-semibold">{item.owner.name}</p><p className="mt-1 text-[11px] text-[#756960]">{item.owner.email}</p></td><td className="px-3 py-4"><span className={'rounded-full px-2.5 py-1 font-bold capitalize ' + statusStyles[item.verificationStatus]}>{item.verificationStatus}</span></td><td className="px-3 py-4 whitespace-nowrap">{formatDate(item.submittedAt)}</td><td className="px-3 py-4">{item.evidence.length} file{item.evidence.length === 1 ? '' : 's'}</td><td className="px-3 py-4"><button type="button" onClick={() => { setSelected(item); setDecisionReason(''); setDecisionError('') }} className="rounded-full bg-[#F5ECE3] px-4 py-2 font-bold">Review details</button></td></tr>)}</tbody></table></div>}
+
+              {!loading && !error && totalPages > 1 && <div className="mt-5 flex items-center justify-between border-t pt-4"><button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)} className="rounded-full border px-4 py-2 text-xs font-bold disabled:opacity-40">Previous</button><span className="text-xs text-[#756960]">Page {page} of {totalPages}</span><button type="button" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)} className="rounded-full border px-4 py-2 text-xs font-bold disabled:opacity-40">Next</button></div>}
             </section>
+
+            {selected && <section className="mb-12 mt-5 rounded-2xl border border-terracotta/35 bg-white p-5 shadow-sm sm:p-6">
+              <div className="flex items-start justify-between gap-3"><div><h2 className="font-heading text-xl">{selected.title}</h2><p className="mt-1 text-xs text-[#756960]">Owned by {selected.owner.name} · submitted {formatDate(selected.submittedAt)}</p></div><button type="button" onClick={() => setSelected(null)} className="text-sm font-bold">Close</button></div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3"><Detail label="Verification status" value={capitalize(selected.verificationStatus)} /><Detail label="Moderation status" value={formatModeration(selected.moderationStatus)} /><Detail label="Compliance audit" value={selected.audit ? 'Score ' + selected.audit.score + ' · expires ' + formatDate(selected.audit.expiryDate) : 'No audit available'} /></div>
+
+              <h3 className="mt-6 font-heading text-lg">Evidence metadata</h3>
+              {selected.evidence.length === 0 && <p className="mt-3 rounded-xl border border-dashed p-4 text-sm text-[#756960]">No listing evidence has been uploaded.</p>}
+              <div className="mt-3 space-y-2">{selected.evidence.map((document) => <article key={document.id} className="rounded-xl border p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-bold">{document.originalFilename}</p><p className="mt-1 text-xs text-[#756960]">{document.mimeType} · {formatSize(document.sizeBytes)} · uploaded {formatDate(document.createdAt)}</p></div><span className="rounded-full bg-[#F5ECE3] px-3 py-1 text-xs font-bold capitalize">{document.status.replace('_', ' ')}</span></div>{document.status === 'rejected' && document.rejectionReason && <p className="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-700"><strong>Rejection reason:</strong> {document.rejectionReason}</p>}<button type="button" disabled={Boolean(downloadingId)} onClick={() => void downloadEvidence(document)} className="mt-3 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-bold disabled:opacity-50"><FileCheck className="size-4" />{downloadingId === document.id ? 'Downloading...' : 'Download securely'}</button></article>)}</div>
+
+              <div className="mt-6 rounded-xl bg-[#F5ECE3] p-4">
+                {(selected.moderationStatus === 'under_review' || selected.moderationStatus === 'active') && <label className="block text-xs font-bold">Decision reason {selected.moderationStatus === 'under_review' ? '(required for rejection)' : '(required for suspension)'}<textarea value={decisionReason} onChange={(event) => { setDecisionReason(event.target.value); setDecisionError('') }} rows={3} maxLength={1000} className="mt-2 w-full rounded-xl border bg-white p-3 text-sm font-normal outline-none focus:border-terracotta" /></label>}
+                {decisionError && <p role="alert" className="mt-3 text-xs font-semibold text-red-700">{decisionError}</p>}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {selected.moderationStatus === 'under_review' && <><button type="button" disabled={deciding} onClick={() => void decide('approve')} className="rounded-full bg-[#8F8A5D] px-5 py-2 text-xs font-bold text-white disabled:opacity-50">{deciding ? 'Saving...' : 'Approve listing'}</button><button type="button" disabled={deciding} onClick={() => void decide('reject')} className="rounded-full bg-red-100 px-5 py-2 text-xs font-bold text-red-700 disabled:opacity-50">Reject listing</button></>}
+                  {selected.moderationStatus === 'active' && <button type="button" disabled={deciding} onClick={() => void decide('suspend')} className="rounded-full bg-red-100 px-5 py-2 text-xs font-bold text-red-700 disabled:opacity-50">{deciding ? 'Saving...' : 'Suspend listing'}</button>}
+                  {selected.moderationStatus === 'suspended' && <p className="text-xs font-semibold text-[#756960]">This listing is suspended. A new decision requires the landlord to edit and resubmit it for review.</p>}
+                </div>
+              </div>
+            </section>}
           </div>
         </main>
       </div>
     </div>
   )
 }
+
+function Detail({ label, value }: { label: string; value: string }) { return <div className="rounded-xl bg-[#FCF9F6] p-4"><p className="text-[11px] font-bold uppercase tracking-wide text-[#83776E]">{label}</p><p className="mt-2 text-sm font-semibold">{value}</p></div> }
+function capitalize(value: string) { return value.charAt(0).toUpperCase() + value.slice(1) }
+function formatModeration(value: string) { return value.split('_').map(capitalize).join(' ') }
+function formatSize(bytes: number) { return bytes < 1024 * 1024 ? Math.max(1, Math.round(bytes / 1024)) + ' KB' : (bytes / 1024 / 1024).toFixed(1) + ' MB' }
+function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('en-PK', { dateStyle: 'medium' }).format(date) }

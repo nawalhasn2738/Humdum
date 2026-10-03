@@ -199,7 +199,7 @@ Content-Type: application/json
 
 | Method | Endpoint | Access | Purpose |
 | --- | --- | --- | --- |
-| `POST` | `/api/auth/register` | Public | Register a tenant or landlord profile. |
+| `POST` | `/api/auth/register` | Supabase access token | Register a tenant or landlord profile bound to the verified token identity. |
 | `POST` | `/api/auth/phone/request-otp` | Public | Request a Supabase SMS verification code. |
 | `POST` | `/api/auth/phone/verify-otp` | Public | Verify the code and receive session tokens. |
 

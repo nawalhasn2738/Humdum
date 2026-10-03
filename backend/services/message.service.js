@@ -75,6 +75,10 @@ async function sendMessage({ senderId, senderRole, receiverId, listingId, conten
          listings.id AS listing_id,
          listings.landlord_id,
          sender.id AS sender_id,
+         sender.name AS sender_name,
+         sender.email AS sender_email,
+         sender.phone AS sender_phone,
+         sender.masked_phone AS sender_masked_phone,
          sender.role AS sender_role,
          receiver.id AS receiver_id,
          receiver.name AS receiver_name,
@@ -139,6 +143,7 @@ async function sendMessage({ senderId, senderRole, receiverId, listingId, conten
 
     return {
       message: result.rows[0],
+      sender: context,
       receiver: context,
       verifiedContact,
     };
@@ -152,7 +157,7 @@ async function sendMessage({ senderId, senderRole, receiverId, listingId, conten
   }
 }
 
-async function getConversation({ viewerId, viewerRole, listingId }) {
+async function getConversation({ viewerId, viewerRole, listingId, participantId }) {
   const listingResult = await pool.query(
     'SELECT id, title FROM listings WHERE id = $1',
     [listingId]
@@ -187,8 +192,19 @@ async function getConversation({ viewerId, viewerRole, listingId }) {
      INNER JOIN users receiver ON receiver.id = messages.receiver_id
      WHERE messages.listing_id = $1
        AND ($2::boolean OR messages.sender_id = $4 OR messages.receiver_id = $4)
+       AND (
+         $5::bigint IS NULL
+         OR messages.sender_id = $5
+         OR messages.receiver_id = $5
+       )
      ORDER BY messages.created_at ASC, messages.id ASC`,
-    [listingId, viewerRole === 'admin', VERIFIED_TENANCY_STATUSES, viewerId]
+    [
+      listingId,
+      viewerRole === 'admin',
+      VERIFIED_TENANCY_STATUSES,
+      viewerId,
+      participantId,
+    ]
   );
 
   return {
@@ -200,6 +216,68 @@ async function getConversation({ viewerId, viewerRole, listingId }) {
   };
 }
 
-module.exports = { getConversation, sendMessage };
+async function getConversationThreads({ viewerId, viewerRole }) {
+  const result = await pool.query(
+    `SELECT DISTINCT ON (
+       messages.listing_id,
+       CASE
+         WHEN messages.sender_id = $1 THEN messages.receiver_id
+         ELSE messages.sender_id
+       END
+     )
+       messages.*,
+       listings.title AS listing_title,
+       sender.name AS sender_name,
+       sender.email AS sender_email,
+       sender.phone AS sender_phone,
+       sender.masked_phone AS sender_masked_phone,
+       sender.role AS sender_role,
+       receiver.name AS receiver_name,
+       receiver.email AS receiver_email,
+       receiver.phone AS receiver_phone,
+       receiver.masked_phone AS receiver_masked_phone,
+       receiver.role AS receiver_role,
+       EXISTS (
+         SELECT 1
+         FROM tenancies
+         WHERE tenancies.listing_id = messages.listing_id
+           AND tenancies.tenant_id IN (messages.sender_id, messages.receiver_id)
+           AND LOWER(tenancies.status) = ANY($2::text[])
+       ) AS verified_contact
+     FROM messages
+     INNER JOIN listings ON listings.id = messages.listing_id
+     INNER JOIN users sender ON sender.id = messages.sender_id
+     INNER JOIN users receiver ON receiver.id = messages.receiver_id
+     WHERE messages.sender_id = $1 OR messages.receiver_id = $1
+     ORDER BY
+       messages.listing_id,
+       CASE
+         WHEN messages.sender_id = $1 THEN messages.receiver_id
+         ELSE messages.sender_id
+       END,
+       messages.created_at DESC,
+       messages.id DESC`,
+    [viewerId, VERIFIED_TENANCY_STATUSES]
+  );
+
+  return result.rows.map((row) => {
+    const message = serializeMessage(row, viewerRole);
+    const peer = String(row.sender_id) === String(viewerId)
+      ? message.receiver
+      : message.sender;
+
+    return {
+      id: `${row.listing_id}:${peer.id}`,
+      listing: {
+        id: String(row.listing_id),
+        title: row.listing_title,
+      },
+      participant: peer,
+      latestMessage: message,
+    };
+  });
+}
+
+module.exports = { getConversation, getConversationThreads, sendMessage };
 
 

@@ -10,6 +10,7 @@ const {
   updateListing,
 } = require('../controllers/listing.controller');
 const { getSafetyScore } = require('../controllers/safety-index.controller');
+const { getCommuteEstimate } = require('../controllers/commute.controller');
 const { authenticate, authorizeRoles } = require('../middleware/auth');
 const { cacheResponse } = require('../middleware/cache');
 
@@ -51,6 +52,12 @@ router.get(
   cacheResponse({ namespace: 'safety-score', ttlSeconds: 120 }),
   getSafetyScore
 );
+router.post(
+  '/:id/commute',
+  authenticate,
+  authorizeRoles(['tenant']),
+  getCommuteEstimate
+);
 router.get('/:id', getListingById);
 router.post(
   '/',
@@ -60,5 +67,3 @@ router.post(
 );
 
 module.exports = router;
-
-

@@ -1,5 +1,6 @@
 const pool = require('../db');
 const { PUBLIC_LISTING_STATUS } = require('./listing-visibility.service');
+const { approximatePublicLocation } = require('./location-privacy.service');
 
 const WEIGHTS = Object.freeze({
   compliance: 0.5,
@@ -68,6 +69,7 @@ async function calculateSafetyIndex(listingId) {
        INNER JOIN tenancies ON tenancies.id = reviews.tenancy_id
        WHERE tenancies.listing_id = l.id
          AND LOWER(tenancies.status) IN ('completed', 'ended')
+         AND reviews.moderation_status = 'approved'
      ) r ON TRUE
      WHERE l.id = $1 AND l.moderation_status = $2`,
     [listingId, PUBLIC_LISTING_STATUS]
@@ -118,10 +120,10 @@ async function calculateSafetyIndex(listingId) {
       location:
         row.latitude === null || row.longitude === null
           ? null
-          : {
-              latitude: Number(row.latitude),
-              longitude: Number(row.longitude),
-            },
+          : approximatePublicLocation({
+              latitude: row.latitude,
+              longitude: row.longitude,
+            }),
     },
     safetyIndex,
     rating: getRating(safetyIndex, dataCompleteness),

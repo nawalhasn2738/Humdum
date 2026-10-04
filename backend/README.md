@@ -160,9 +160,10 @@ npm run db:anomalies
 npm run db:family-profiles
 npm run db:tenancy-concurrency
 npm run db:uploads
+npm run db:review-moderation
 ```
 
-The scripts create the core schema, PostGIS indexes, integrity constraints, audit chain, moderation structures, family-profile fields, concurrency constraint, and upload metadata table. Review existing data before applying exclusion or uniqueness constraints to a populated database.
+The scripts create the core schema, PostGIS indexes, integrity constraints, audit chain, moderation structures, family-profile fields, concurrency constraint, upload metadata table, and immutable review moderation log. Review existing data before applying exclusion or uniqueness constraints to a populated database.
 
 ### Run the Services
 
@@ -263,7 +264,9 @@ Supported upload document types are `identity_verification`, `listing_verificati
 - Never commit `.env` or expose the Supabase service-role key, database credentials, Redis credentials, or JWT secrets.
 - Keep the document bucket private; persist object paths and generate signed URLs only when authorized.
 - Place the API behind TLS and a trusted reverse proxy in production.
-- Apply rate limits at the gateway and monitor anomaly reports, failed OTP attempts, upload failures, Redis health, and BullMQ failures.
+- Message sending is limited server-side by authenticated profile and canonical listing/participant conversation. Defaults are 30 messages per user per 60 seconds and 10 per conversation per 10 seconds; environment variables can tune both windows.
+- If Redis is unavailable, message limiting falls back to a bounded in-process counter. This preserves single-instance protection and availability, but counters reset on restart and are not shared across replicas. Production deployments should monitor Redis health and also apply gateway-level limits.
+- Monitor anomaly reports, failed OTP attempts, upload failures, Redis health, and BullMQ failures.
 - Database constraints remain authoritative even when application-level validation or caching is bypassed.
 
 ## License

@@ -1,5 +1,6 @@
 const pool = require('../db');
 const { detectMessagingAnomalies } = require('./anomaly.service');
+const { canSendMessage } = require('./conversation-policy.service');
 const {
   applyMessagePrivacy,
   serializeContact,
@@ -111,9 +112,39 @@ async function sendMessage({ senderId, senderRole, receiverId, listingId, conten
       throw error;
     }
 
+    const tenantId = String(context.landlord_id) === String(senderId)
+      ? receiverId
+      : senderId;
+    const authorizationResult = await client.query(
+      `SELECT
+         EXISTS (
+           SELECT 1 FROM messages
+           WHERE listing_id = $1
+             AND ((sender_id = $2 AND receiver_id = $3)
+               OR (sender_id = $3 AND receiver_id = $2))
+         ) AS existing_conversation,
+         EXISTS (
+           SELECT 1 FROM inquiries
+           WHERE listing_id = $1 AND tenant_id = $4
+             AND status IN ('pending', 'accepted')
+         ) AS active_inquiry`,
+      [listingId, senderId, receiverId, tenantId]
+    );
+    const authorization = authorizationResult.rows[0];
     const verifiedContact =
       senderRole === 'admin' ||
       (await hasVerifiedRelationship(client, listingId, senderId, receiverId));
+
+    if (!canSendMessage({
+      actorRole: senderRole,
+      existingConversation: authorization.existing_conversation,
+      activeInquiry: authorization.active_inquiry,
+      verifiedRelationship: verifiedContact,
+    })) {
+      const error = new Error('An active inquiry or tenancy is required to start this conversation.');
+      error.code = 'MESSAGE_FORBIDDEN';
+      throw error;
+    }
     const privacy = applyMessagePrivacy({
       content,
       viewerRole: senderRole,

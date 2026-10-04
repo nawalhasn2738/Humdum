@@ -4,7 +4,7 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "test": "node --test --test-isolation=none tests/*.test.js",
+    "test": "npm run test:unit && npm run test:integration",
     "start": "node server.js",
     "dev": "nodemon server.js",
     "migrate": "node migrate.js",
@@ -17,8 +17,12 @@
     "db:uploads": "node upload-migration.js",
     "db:inquiries": "node inquiry-migration.js",
     "db:listing-management": "node listing-management-migration.js",
+    "db:review-moderation": "node review-moderation-migration.js",
+    "db:verify": "node scripts/verify-database.js",
     "smoke": "node scripts/smoke-test.js",
-    "seed:users": "node scripts/seed-users.js"
+    "seed:users": "node scripts/seed-users.js",
+    "test:unit": "node --test --test-isolation=none tests/*.test.js",
+    "test:integration": "node --test --test-isolation=none tests/integration/*.integration.test.js"
   },
   "keywords": [],
   "author": "",

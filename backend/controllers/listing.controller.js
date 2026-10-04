@@ -3,6 +3,7 @@ const { detectListingAnomalies } = require('../services/anomaly.service');
 const { invalidateCachePattern } = require('../services/cache.service');
 const { classifyListingOwnership, validateListingInput } = require('../services/listing-validation.service');
 const { PUBLIC_LISTING_STATUS, canAccessManagedListing } = require('../services/listing-visibility.service');
+const { PUBLIC_COORDINATE_GRID_DEGREES, approximatePublicLocation } = require('../services/location-privacy.service');
 
 const DEFAULT_RADIUS_KM = 5;
 const MAX_RADIUS_KM = 100;
@@ -11,7 +12,7 @@ function isPositiveId(value) {
   return /^[1-9]\d*$/.test(String(value));
 }
 
-function serializeListing(row) {
+function serializeListing(row, { publicView = false } = {}) {
   return {
     id: String(row.id),
     landlordId: String(row.landlord_id),
@@ -29,7 +30,9 @@ function serializeListing(row) {
     reportedSafetyFeatures: row.reported_safety_features || [],
     location: row.latitude === null || row.longitude === null
       ? null
-      : { latitude: Number(row.latitude), longitude: Number(row.longitude) },
+      : publicView
+        ? approximatePublicLocation({ latitude: row.latitude, longitude: row.longitude })
+        : { latitude: Number(row.latitude), longitude: Number(row.longitude) },
     ...(row.distance_km === undefined ? {} : { distanceKm: Number(row.distance_km) }),
     ...(row.moderation_status === undefined ? {} : { moderationStatus: row.moderation_status }),
     createdAt: row.created_at,
@@ -147,7 +150,7 @@ async function updateListing(req, res) {
       const ownership = await identifyOwnership(req.params.id, req.user.profileId);
       return ownership === 'missing'
         ? res.status(404).json({ error: 'Listing not found.' })
-        : res.status(403).json({ error: 'You cannot edit another landlord’s listing.' });
+        : res.status(403).json({ error: 'You cannot edit a listing owned by another landlord.' });
     }
 
     await runAnomalyDetection(result.rows[0].id);
@@ -176,7 +179,7 @@ async function deactivateListing(req, res) {
       const ownership = await identifyOwnership(req.params.id, req.user.profileId);
       return ownership === 'missing'
         ? res.status(404).json({ error: 'Listing not found.' })
-        : res.status(403).json({ error: 'You cannot deactivate another landlord’s listing.' });
+        : res.status(403).json({ error: 'You cannot deactivate a listing owned by another landlord.' });
     }
     await invalidateCachePattern('cache:listings:*');
     await invalidateCachePattern('cache:safety-score:/api/listings/' + req.params.id + '/safety-score*');
@@ -203,7 +206,7 @@ async function getListings(req, res) {
          ORDER BY created_at DESC LIMIT 100`,
         [PUBLIC_LISTING_STATUS]
       );
-      return res.json({ listings: result.rows.map(serializeListing), meta: { count: result.rows.length } });
+      return res.json({ listings: result.rows.map((row) => serializeListing(row, { publicView: true })), meta: { count: result.rows.length } });
     }
 
     const latitude = Number(latitudeValue);
@@ -217,16 +220,16 @@ async function getListings(req, res) {
 
     const result = await pool.query(
       `SELECT ${listingColumns()},
-         ST_Distance(geo_point::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) / 1000.0 AS distance_km
+         ST_Distance(ST_SnapToGrid(geo_point, $5)::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) / 1000.0 AS distance_km
        FROM listings
        WHERE geo_point IS NOT NULL
          AND moderation_status = $4
          AND ST_DWithin(geo_point::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3::double precision * 1000.0)
        ORDER BY distance_km ASC LIMIT 100`,
-      [longitude, latitude, radiusKm, PUBLIC_LISTING_STATUS]
+      [longitude, latitude, radiusKm, PUBLIC_LISTING_STATUS, PUBLIC_COORDINATE_GRID_DEGREES]
     );
     return res.json({
-      listings: result.rows.map(serializeListing),
+      listings: result.rows.map((row) => serializeListing(row, { publicView: true })),
       meta: { center: { latitude, longitude }, radiusKm, count: result.rows.length },
     });
   } catch (error) {
@@ -310,7 +313,7 @@ async function getListingById(req, res) {
       [req.params.id, PUBLIC_LISTING_STATUS]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Listing not found.' });
-    return res.json({ listing: serializeListing(result.rows[0]) });
+    return res.json({ listing: serializeListing(result.rows[0], { publicView: true }) });
   } catch (error) {
     console.error('Listing detail fetch failed:', error.message);
     return res.status(500).json({ error: 'Unable to fetch listing.' });

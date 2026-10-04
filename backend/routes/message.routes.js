@@ -5,10 +5,11 @@ const {
   getMessages,
 } = require('../controllers/message.controller');
 const { authenticate } = require('../middleware/auth');
+const { messageRateLimit } = require('../middleware/message-rate-limit');
 
 const router = express.Router();
 
-router.post('/', authenticate, createMessage);
+router.post('/', authenticate, messageRateLimit, createMessage);
 router.get('/', authenticate, getMessageThreads);
 router.get('/:listingId', authenticate, getMessages);
 

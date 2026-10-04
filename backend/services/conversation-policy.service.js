@@ -1,4 +1,4 @@
-﻿const ACTIVE_INQUIRY_STATUSES = Object.freeze(['pending', 'accepted']);
+const ACTIVE_INQUIRY_STATUSES = Object.freeze(['pending', 'accepted']);
 
 function isInquiryParticipant({ actorId, tenantId, landlordId }) {
   return [tenantId, landlordId].some((id) => String(id) === String(actorId));
@@ -11,9 +11,13 @@ function canInitiateConversation({ actorId, actorRole, tenantId, landlordId, inq
   return ACTIVE_INQUIRY_STATUSES.includes(inquiryStatus);
 }
 
+function canSendMessage({ actorRole, existingConversation, activeInquiry, verifiedRelationship }) {
+  return actorRole === 'admin' || existingConversation || activeInquiry || verifiedRelationship;
+}
+
 function canUseConversation(args) {
   if (args.actorRole === 'admin') return true;
   return isInquiryParticipant(args) && (args.conversationExists || canInitiateConversation(args));
 }
 
-module.exports = { ACTIVE_INQUIRY_STATUSES, canInitiateConversation, canUseConversation, isInquiryParticipant };
+module.exports = { ACTIVE_INQUIRY_STATUSES, canInitiateConversation, canSendMessage, canUseConversation, isInquiryParticipant };
